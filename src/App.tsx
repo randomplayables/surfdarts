@@ -10,11 +10,36 @@ function App() {
 
   // Initialize the game session on component mount
   useEffect(() => {
+    let mounted = true;
     initGameSession().then(session => {
+      if (!mounted) return;
       console.log("Game session initialized:", session);
       setSessionId(session.sessionId);
     });
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  // Don't render gameplay until we have a sessionId
+  if (!sessionId) {
+    return (
+      <div className="app-container">
+        <h1>Surf Darts</h1>
+
+        <div className="scoreboard">
+          <div className="scoreboard-item">
+            <span>Status</span>
+            Connecting to platform...
+          </div>
+        </div>
+
+        <div className="game-container" style={{ position: 'relative', display: 'grid', placeItems: 'center' }}>
+          <p>Preparing your session…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
