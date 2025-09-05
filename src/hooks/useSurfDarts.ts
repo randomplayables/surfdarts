@@ -5,133 +5,164 @@ import { saveGameData } from '../services/apiService';
 const MAX_ROUNDS = 5;
 const INITIAL_BOARD_RADIUS = 250;
 
-// This custom hook encapsulates all the game logic for Surf Darts.
 export const useSurfDarts = (sessionId: string | null) => {
   const [gameState, setGameState] = useState<GameState>({
     currentRound: 1,
     totalScore: 0,
-    circles: [{ id: 0, x: 0, y: 0, radius: INITIAL_BOARD_RADIUS }], // The main dartboard
+    circles: [{ id: 0, x: 0, y: 0, radius: INITIAL_BOARD_RADIUS }],
     isGameOver: false,
     message: null,
   });
 
+  // Always keep a ref of the latest state to avoid stale reads in handlers
+  const stateRef = useRef(gameState);
+  useEffect(() => {
+    stateRef.current = gameState;
+  }, [gameState]);
+
   const messageTimerRef = useRef<number | null>(null);
 
-  // Effect to show messages when round changes or game ends
-  useEffect(() => {
+  // Euclidean distance helper
+  const dist = (x1: number, y1: number, x2: number, y2: number) =>
+    Math.hypot(x1 - x2, y1 - y2);
+
+  // Safe reciprocal to avoid division-by-zero if click is exactly at a center
+  const recip = (d: number) => 1 / Math.max(d, 1e-6);
+
+  // Centralized message setter (prevents extra state races)
+  const setTransientMessage = useCallback((text: string | null) => {
     if (messageTimerRef.current) {
       clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = null;
     }
-
-    let newMessage: string | null = null;
-    if (gameState.isGameOver) {
-      newMessage = gameState.totalScore > 0 ? 'Game Complete!' : 'You missed the target!';
-    } else {
-      newMessage = `Round ${gameState.currentRound}: Aim for the new circle!`;
-      if (gameState.currentRound === 1) {
-        newMessage = `Round 1: Throw your dart anywhere on the board!`;
-      }
+    setGameState(prev => ({ ...prev, message: text }));
+    if (text) {
+      messageTimerRef.current = window.setTimeout(() => {
+        setGameState(prev => ({ ...prev, message: null }));
+        messageTimerRef.current = null;
+      }, 3500);
     }
+  }, []);
 
-    setGameState(prev => ({ ...prev, message: newMessage }));
-
-    messageTimerRef.current = setTimeout(() => {
-      setGameState(prev => ({ ...prev, message: null }));
-    }, 3500); // Message disappears after 3.5 seconds
-
-    return () => {
-      if (messageTimerRef.current) {
-        clearTimeout(messageTimerRef.current);
-      }
-    };
-  }, [gameState.currentRound, gameState.isGameOver]);
-
-
-  // This function is called by the Kaplay component when the user "throws" a dart.
+  // Main throw handler (single functional update to avoid stale state bugs)
   const handleThrow = useCallback((throwData: ThrowData) => {
-    if (gameState.isGameOver) return;
-
-    setGameState(prev => ({ ...prev, message: null })); // Clear any existing message immediately on throw
-    if (messageTimerRef.current) {
-        clearTimeout(messageTimerRef.current);
-    }
+    const prev = stateRef.current;
+    if (prev.isGameOver) return;
 
     const { x, y } = throwData;
-    let currentScore = gameState.totalScore;
-    let nextCircles = [...gameState.circles];
+    const circles = prev.circles;
+    const focalIndex = circles.length - 1;
+    const focal = circles[focalIndex];
+
+    const distanceToFocal = dist(x, y, focal.x, focal.y);
+    const hitFocal = distanceToFocal <= focal.radius;
+
+    // Precompute "inside which circles"
+    const insideFlags = circles.map(c => dist(x, y, c.x, c.y) <= c.radius);
+
+    // Compute round score per indicator rule only if focal is hit
     let roundScore = 0;
-
-    const targetCircle = gameState.circles[gameState.circles.length - 1];
-    const distanceToTargetCenter = Math.sqrt(Math.pow(x - targetCircle.x, 2) + Math.pow(y - targetCircle.y, 2));
-
-    if (distanceToTargetCenter > targetCircle.radius) {
-      setGameState(prev => ({ ...prev, isGameOver: true }));
-      return;
-    }
-
-    let newCircleCenter = { x, y };
-    let newCircleRadius = 0;
-
-    for (let i = 0; i < gameState.circles.length; i++) {
-        const circle = gameState.circles[i];
-        const dist = Math.sqrt(Math.pow(x - circle.x, 2) + Math.pow(y - circle.y, 2));
-        if (dist <= circle.radius) {
-            const prevCircle = gameState.circles[i-1] || {x:0, y:0};
-            const radiusFromThrow = Math.sqrt(Math.pow(x - prevCircle.x, 2) + Math.pow(y - prevCircle.y, 2));
-            roundScore += radiusFromThrow;
+    if (hitFocal) {
+      for (let k = focalIndex; k >= 0; k--) {
+        // Must be inside every circle from k..focalIndex
+        let insideChain = true;
+        for (let j = k; j <= focalIndex; j++) {
+          if (!insideFlags[j]) {
+            insideChain = false;
+            break;
+          }
         }
+        if (!insideChain) continue;
+        const d = dist(x, y, circles[k].x, circles[k].y);
+        roundScore += recip(d);
+      }
     }
-    
-    newCircleRadius = distanceToTargetCenter;
-    currentScore += roundScore;
 
-    const newCircle: Circle = {
-      id: gameState.circles.length,
-      x: newCircleCenter.x,
-      y: newCircleCenter.y,
-      radius: newCircleRadius,
-    };
-    nextCircles.push(newCircle);
+    // Decide next state *once*, then optionally persist
+    let nextState: GameState;
+    let roundDataToSave: RoundData | null = null;
 
-    const roundDataToSave: RoundData = {
-        roundNumber: gameState.currentRound,
+    if (!hitFocal) {
+      // Strict miss rule: do not adjust score or circles; end immediately
+      nextState = {
+        ...prev,
+        isGameOver: true,
+        message: 'You missed the target!',
+      };
+      console.debug('[SurfDarts] MISS focal', {
+        round: prev.currentRound,
+        x,
+        y,
+        focalIndex,
+        distanceToFocal,
+      });
+    } else {
+      const newCircle: Circle = {
+        id: circles.length, // unique, append-only
+        x,
+        y,
+        radius: distanceToFocal,
+      };
+      const nextCircles = [...circles, newCircle];
+      const nextTotal = prev.totalScore + roundScore;
+      const nextRound = prev.currentRound + 1;
+
+      const isFinal = nextRound > MAX_ROUNDS;
+
+      nextState = {
+        ...prev,
+        circles: nextCircles,
+        totalScore: nextTotal,
+        currentRound: isFinal ? prev.currentRound : nextRound,
+        isGameOver: isFinal,
+        message: isFinal ? 'Game Complete!' : `Round ${nextRound}: Aim for the new circle!`,
+      };
+
+      roundDataToSave = {
+        roundNumber: prev.currentRound,
         score: roundScore,
         throwX: x,
         throwY: y,
         circles: nextCircles,
-    };
-    if (sessionId) {
-        saveGameData(`round_${gameState.currentRound}`, roundDataToSave);
+      };
+
+      console.debug('[SurfDarts] HIT focal', {
+        round: prev.currentRound,
+        x,
+        y,
+        focalIndex,
+        distanceToFocal,
+        roundScore,
+        nextRound,
+        isFinal,
+      });
     }
 
-    const nextRound = gameState.currentRound + 1;
-    if (nextRound > MAX_ROUNDS) {
-      setGameState(prev => ({
-        ...prev,
-        totalScore: currentScore,
-        circles: nextCircles,
-        isGameOver: true,
-      }));
-    } else {
-      setGameState(prev => ({
-        ...prev,
-        currentRound: nextRound,
-        totalScore: currentScore,
-        circles: nextCircles,
-        isGameOver: false,
-      }));
-    }
-  }, [gameState, sessionId]);
+    // Apply computed state once
+    setGameState(nextState);
 
-  // Function to reset the game to its initial state.
+    // Persist after state set (fire-and-forget)
+    if (sessionId && roundDataToSave) {
+      try {
+        saveGameData(`round_${roundDataToSave.roundNumber}`, roundDataToSave);
+      } catch {
+        // ignore persistence errors for gameplay
+      }
+    }
+  }, [sessionId]);
+
   const resetGame = useCallback(() => {
+    const prev = stateRef.current;
     if (sessionId) {
+      try {
         saveGameData('game_end', {
-            finalScore: gameState.totalScore,
-            totalRounds: gameState.currentRound -1,
+          finalScore: prev.totalScore,
+          totalRounds: prev.currentRound - 1,
         });
+      } catch {
+        // ignore
+      }
     }
-
     setGameState({
       currentRound: 1,
       totalScore: 0,
@@ -139,17 +170,32 @@ export const useSurfDarts = (sessionId: string | null) => {
       isGameOver: false,
       message: null,
     });
-  }, [sessionId, gameState.totalScore, gameState.currentRound]);
+  }, [sessionId]);
 
-  // Effect to handle saving data on game over
+  // On terminal game over, persist once more (idempotent safety)
   useEffect(() => {
     if (gameState.isGameOver && sessionId) {
+      try {
         saveGameData('game_end', {
-            finalScore: gameState.totalScore,
-            totalRounds: gameState.currentRound -1,
+          finalScore: gameState.totalScore,
+          totalRounds: gameState.currentRound - 1,
         });
+      } catch {
+        // ignore
+      }
     }
   }, [gameState.isGameOver, gameState.totalScore, gameState.currentRound, sessionId]);
+
+  // Optional: show a message on first mount / when round changes
+  useEffect(() => {
+    if (gameState.isGameOver) return;
+    if (gameState.currentRound === 1) {
+      setTransientMessage('Round 1: Throw your dart anywhere on the board!');
+    } else {
+      setTransientMessage(`Round ${gameState.currentRound}: Aim for the new circle!`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.currentRound, gameState.isGameOver]);
 
   return { gameState, handleThrow, resetGame };
 };
