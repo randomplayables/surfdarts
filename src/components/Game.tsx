@@ -32,16 +32,21 @@ const Game: React.FC<GameProps> = ({ circles, onThrow, isGameOver }) => {
     round: 1,
   });
 
-  // Keep round count in sync (affects difficulty scaling)
+  // === Freeze motion difficulty to "round 3" across all rounds ===
+  const EFFECTIVE_ROUND_FOR_MOTION = 3;
+
+  // Keep round transitions triggering a retarget feel, but pin difficulty
   useEffect(() => {
-    // circles: [O, A, B, ...] — round is circles.length (O present at start)
-    const round = Math.max(1, circles.length);
+    // circles: [O, A, B, ...] — actual round is circles.length (O present at start)
+    // For MOTION ONLY, we lock to round 3 parameters.
     const m = motionRef.current;
-    m.round = round;
-    // Slightly increase the base rotation speed with each round (subtle)
-    m.baseRot = 15 + (round - 1) * 4;
-    // When round changes, ask for a retarget soon to feel different each round
-    m.retargetAt = 0; // force immediate retarget on next update tick
+    m.round = EFFECTIVE_ROUND_FOR_MOTION;
+
+    // Base rotation computed from the effective (locked) round
+    m.baseRot = 15 + (EFFECTIVE_ROUND_FOR_MOTION - 1) * 4;
+
+    // Ask for an immediate retarget on next update tick so each round still feels alive
+    m.retargetAt = 0;
   }, [circles.length]);
 
   useEffect(() => {
@@ -77,8 +82,8 @@ const Game: React.FC<GameProps> = ({ circles, onThrow, isGameOver }) => {
 
       // Occasionally retarget motion parameters to add unpredictability
       if (m.retargetAt <= 0 || time - m.retargetAt > 2.5) {
-        // Round-based scaling (kept mild)
-        const r = m.round;
+        // Use the locked "round 3" difficulty
+        const r = m.round; // already pinned to EFFECTIVE_ROUND_FOR_MOTION
         const ampBoost = 6 + (r - 1) * 4;
         const speedJitter = 0.9 + Math.random() * 0.2;
 
@@ -97,7 +102,7 @@ const Game: React.FC<GameProps> = ({ circles, onThrow, isGameOver }) => {
         m.retargetAt = time;
       }
 
-      // Smoothly ease toward targets
+      // Smoothly ease toward targets (keeps jitter mellow)
       const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
       m.rotSpeed = lerp(m.rotSpeed, m.targetRot, 0.02);
       m.vyAmp   = lerp(m.vyAmp,   m.targetVyAmp, 0.02);
