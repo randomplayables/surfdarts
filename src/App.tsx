@@ -7,6 +7,7 @@ import { initGameSession } from './services/apiService';
 function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showInstructions, setShowInstructions] = useState<boolean>(true);
+  const [gameInstance, setGameInstance] = useState<number>(0); // increment to remount <Game />
 
   const { gameState, handleThrow, resetGame } = useSurfDarts(sessionId, {
     instructionsEnabled: showInstructions,
@@ -25,6 +26,13 @@ function App() {
       mounted = false;
     };
   }, []);
+
+  const handlePlayAgain = () => {
+    // Reset gameplay state (score, circles, round, etc.)
+    resetGame();
+    // Hard reset motion by remounting the Game component
+    setGameInstance((prev) => prev + 1);
+  };
 
   // Don't render gameplay until we have a sessionId
   if (!sessionId) {
@@ -76,14 +84,13 @@ function App() {
 
       <div className="game-container" style={{ position: 'relative' }}>
         <Game
+          key={gameInstance}             // ← remounts Game on Play Again
           circles={gameState.circles}
           onThrow={handleThrow}
           isGameOver={gameState.isGameOver}
         />
         {gameState.message && !gameState.isGameOver && (
-          <div
-            className="game-message"
-          >
+          <div className="game-message">
             <p>{gameState.message}</p>
           </div>
         )}
@@ -94,7 +101,7 @@ function App() {
           <div className="final-score-modal">
             <h2>{gameState.message}</h2>
             <p>Final Score: {gameState.totalScore.toFixed(2)}</p>
-            <button onClick={resetGame}>Play Again</button>
+            <button onClick={handlePlayAgain}>Play Again</button>
           </div>
         </div>
       )}
