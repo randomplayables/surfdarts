@@ -5,7 +5,18 @@ import { saveGameData } from '../services/apiService';
 const MAX_ROUNDS = 5;
 const INITIAL_BOARD_RADIUS = 250;
 
-export const useSurfDarts = (sessionId: string | null) => {
+interface SurfDartsOptions {
+  instructionsEnabled?: boolean;
+  instructionDurationMs?: number;
+}
+
+export const useSurfDarts = (
+  sessionId: string | null,
+  options?: SurfDartsOptions,
+) => {
+  const instructionDurationMs = options?.instructionDurationMs ?? 1200; // shorter display
+  const instructionsEnabled = options?.instructionsEnabled ?? true;
+
   const [gameState, setGameState] = useState<GameState>({
     currentRound: 1,
     totalScore: 0,
@@ -30,18 +41,34 @@ export const useSurfDarts = (sessionId: string | null) => {
   const recip = (d: number) => 1 / Math.max(d, 1e-6);
 
   // Centralized message setter (prevents extra state races)
-  const setTransientMessage = useCallback((text: string | null) => {
+  const setTransientMessage = useCallback(
+    (text: string | null) => {
+      if (messageTimerRef.current) {
+        clearTimeout(messageTimerRef.current);
+        messageTimerRef.current = null;
+      }
+
+      if (!instructionsEnabled || !text) {
+        setGameState(prev => ({ ...prev, message: null }));
+        return;
+      }
+
+      setGameState(prev => ({ ...prev, message: text }));
+      messageTimerRef.current = window.setTimeout(() => {
+        setGameState(prev => ({ ...prev, message: null }));
+        messageTimerRef.current = null;
+      }, instructionDurationMs);
+    },
+    [instructionDurationMs, instructionsEnabled]
+  );
+
+  // Allow immediate dismissal on click
+  const clearMessage = useCallback(() => {
     if (messageTimerRef.current) {
       clearTimeout(messageTimerRef.current);
       messageTimerRef.current = null;
     }
-    setGameState(prev => ({ ...prev, message: text }));
-    if (text) {
-      messageTimerRef.current = window.setTimeout(() => {
-        setGameState(prev => ({ ...prev, message: null }));
-        messageTimerRef.current = null;
-      }, 3500);
-    }
+    setGameState(prev => ({ ...prev, message: null }));
   }, []);
 
   // Main throw handler (single functional update to avoid stale state bugs)
@@ -62,14 +89,13 @@ export const useSurfDarts = (sessionId: string | null) => {
     if (hitFocal) {
       // For round n, we have n terms in the scoring formula
       // Each term checks specific circles and adds reciprocal of distance to a specific center
-      
       for (let termIndex = 0; termIndex <= focalIndex; termIndex++) {
         // For term i (0-indexed), we need to check if throw is inside:
         // - The focal circle (always required since hitFocal is true)
         // - All circles from focal down to circle at index (focalIndex - termIndex)
-        
+
         let insideRequiredCircles = true;
-        
+
         // Check if throw is inside all circles from focal down to target for this term
         for (let checkIdx = focalIndex; checkIdx >= focalIndex - termIndex; checkIdx--) {
           if (checkIdx < 0) break;
@@ -80,7 +106,7 @@ export const useSurfDarts = (sessionId: string | null) => {
             break;
           }
         }
-        
+
         if (insideRequiredCircles) {
           // Calculate distance from throw to the center of the target circle for this term
           const targetIdx = focalIndex - termIndex;
@@ -224,5 +250,5 @@ export const useSurfDarts = (sessionId: string | null) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.currentRound, gameState.isGameOver]);
 
-  return { gameState, handleThrow, resetGame };
+  return { gameState, handleThrow, resetGame, clearMessage };
 };

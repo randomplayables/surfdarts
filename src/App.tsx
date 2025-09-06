@@ -6,7 +6,12 @@ import { initGameSession } from './services/apiService';
 
 function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const { gameState, handleThrow, resetGame } = useSurfDarts(sessionId);
+  const [showInstructions, setShowInstructions] = useState<boolean>(true);
+
+  const { gameState, handleThrow, resetGame } = useSurfDarts(sessionId, {
+    instructionsEnabled: showInstructions,
+    instructionDurationMs: 1200, // shorter display time
+  });
 
   // Initialize the game session on component mount
   useEffect(() => {
@@ -56,6 +61,19 @@ function App() {
         </div>
       </div>
 
+      {/* Minimal toggle control (no style changes elsewhere) */}
+      <div style={{ marginTop: '0.25rem' }}>
+        <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox"
+            checked={showInstructions}
+            onChange={(e) => setShowInstructions(e.target.checked)}
+            style={{ marginRight: '0.5rem' }}
+          />
+          Show tips
+        </label>
+      </div>
+
       <div className="game-container" style={{ position: 'relative' }}>
         <Game
           circles={gameState.circles}
@@ -63,7 +81,9 @@ function App() {
           isGameOver={gameState.isGameOver}
         />
         {gameState.message && !gameState.isGameOver && (
-          <div className="game-message">
+          <div
+            className="game-message"
+          >
             <p>{gameState.message}</p>
           </div>
         )}
