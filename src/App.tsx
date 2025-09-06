@@ -8,34 +8,49 @@ function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showInstructions, setShowInstructions] = useState<boolean>(true);
   const [gameInstance, setGameInstance] = useState<number>(0); // increment to remount <Game />
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
   const { gameState, handleThrow, resetGame } = useSurfDarts(sessionId, {
     instructionsEnabled: showInstructions,
     instructionDurationMs: 1200, // shorter display time
   });
 
+  // Function to initialize a new game session
+  const createNewSession = async () => {
+    setIsInitializing(true);
+    try {
+      // Clear the old session from localStorage to force a new one
+      localStorage.removeItem('surfdartsGameSession');
+      localStorage.removeItem('surfdartsGameSessionCreationTime');
+      
+      const session = await initGameSession();
+      console.log("New game session initialized:", session);
+      setSessionId(session.sessionId);
+    } catch (error) {
+      console.error("Failed to initialize game session:", error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
   // Initialize the game session on component mount
   useEffect(() => {
-    let mounted = true;
-    initGameSession().then(session => {
-      if (!mounted) return;
-      console.log("Game session initialized:", session);
-      setSessionId(session.sessionId);
-    });
-    return () => {
-      mounted = false;
-    };
+    createNewSession();
   }, []);
 
-  const handlePlayAgain = () => {
-    // Reset gameplay state (score, circles, round, etc.)
+  const handlePlayAgain = async () => {
+    // First, finalize the current game (this will save the final score)
     resetGame();
+    
+    // Create a new session for the new game
+    await createNewSession();
+    
     // Hard reset motion by remounting the Game component
     setGameInstance((prev) => prev + 1);
   };
 
   // Don't render gameplay until we have a sessionId
-  if (!sessionId) {
+  if (!sessionId || isInitializing) {
     return (
       <div className="app-container">
         <h1>Surf Darts</h1>
@@ -43,7 +58,7 @@ function App() {
         <div className="scoreboard">
           <div className="scoreboard-item">
             <span>Status</span>
-            Connecting to platform...
+            {isInitializing ? 'Connecting to platform...' : 'Ready'}
           </div>
         </div>
 
