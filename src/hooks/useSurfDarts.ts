@@ -1,3 +1,212 @@
+// import { useState, useCallback, useEffect, useRef } from 'react';
+// import type { GameState, Circle, ThrowData, RoundData } from '../types';
+// import { saveGameData } from '../services/apiService';
+
+// const MAX_ROUNDS = 5;
+// const INITIAL_BOARD_RADIUS = 250;
+
+// export const useSurfDarts = (sessionId: string | null) => {
+//   const [gameState, setGameState] = useState<GameState>({
+//     currentRound: 1,
+//     totalScore: 0,
+//     circles: [{ id: 0, x: 0, y: 0, radius: INITIAL_BOARD_RADIUS }],
+//     isGameOver: false,
+//     message: null,
+//   });
+
+//   // Always keep a ref of the latest state to avoid stale reads in handlers
+//   const stateRef = useRef(gameState);
+//   useEffect(() => {
+//     stateRef.current = gameState;
+//   }, [gameState]);
+
+//   const messageTimerRef = useRef<number | null>(null);
+
+//   // Euclidean distance helper
+//   const dist = (x1: number, y1: number, x2: number, y2: number) =>
+//     Math.hypot(x1 - x2, y1 - y2);
+
+//   // Safe reciprocal to avoid division-by-zero if click is exactly at a center
+//   const recip = (d: number) => 1 / Math.max(d, 1e-6);
+
+//   // Centralized message setter (prevents extra state races)
+//   const setTransientMessage = useCallback((text: string | null) => {
+//     if (messageTimerRef.current) {
+//       clearTimeout(messageTimerRef.current);
+//       messageTimerRef.current = null;
+//     }
+//     setGameState(prev => ({ ...prev, message: text }));
+//     if (text) {
+//       messageTimerRef.current = window.setTimeout(() => {
+//         setGameState(prev => ({ ...prev, message: null }));
+//         messageTimerRef.current = null;
+//       }, 3500);
+//     }
+//   }, []);
+
+//   // Main throw handler (single functional update to avoid stale state bugs)
+//   const handleThrow = useCallback((throwData: ThrowData) => {
+//     const prev = stateRef.current;
+//     if (prev.isGameOver) return;
+
+//     const { x, y } = throwData;
+//     const circles = prev.circles;
+//     const focalIndex = circles.length - 1;
+//     const focal = circles[focalIndex];
+
+//     const distanceToFocal = dist(x, y, focal.x, focal.y);
+//     const hitFocal = distanceToFocal <= focal.radius;
+
+//     // Precompute "inside which circles"
+//     const insideFlags = circles.map(c => dist(x, y, c.x, c.y) <= c.radius);
+
+//     // Compute round score per indicator rule only if focal is hit
+//     let roundScore = 0;
+//     if (hitFocal) {
+//       for (let k = focalIndex; k >= 0; k--) {
+//         // Must be inside every circle from k..focalIndex
+//         let insideChain = true;
+//         for (let j = k; j <= focalIndex; j++) {
+//           if (!insideFlags[j]) {
+//             insideChain = false;
+//             break;
+//           }
+//         }
+//         if (!insideChain) continue;
+//         const d = dist(x, y, circles[k].x, circles[k].y);
+//         roundScore += recip(d);
+//       }
+//     }
+
+//     // Decide next state *once*, then optionally persist
+//     let nextState: GameState;
+//     let roundDataToSave: RoundData | null = null;
+
+//     if (!hitFocal) {
+//       // Strict miss rule: do not adjust score or circles; end immediately
+//       nextState = {
+//         ...prev,
+//         isGameOver: true,
+//         message: 'You missed the target!',
+//       };
+//       console.debug('[SurfDarts] MISS focal', {
+//         round: prev.currentRound,
+//         x,
+//         y,
+//         focalIndex,
+//         distanceToFocal,
+//       });
+//     } else {
+//       const newCircle: Circle = {
+//         id: circles.length, // unique, append-only
+//         x,
+//         y,
+//         radius: distanceToFocal,
+//       };
+//       const nextCircles = [...circles, newCircle];
+//       const nextTotal = prev.totalScore + roundScore;
+//       const nextRound = prev.currentRound + 1;
+
+//       const isFinal = nextRound > MAX_ROUNDS;
+
+//       nextState = {
+//         ...prev,
+//         circles: nextCircles,
+//         totalScore: nextTotal,
+//         currentRound: isFinal ? prev.currentRound : nextRound,
+//         isGameOver: isFinal,
+//         message: isFinal ? 'Game Complete!' : `Round ${nextRound}: Aim for the new circle!`,
+//       };
+
+//       roundDataToSave = {
+//         roundNumber: prev.currentRound,
+//         score: roundScore,
+//         throwX: x,
+//         throwY: y,
+//         circles: nextCircles,
+//       };
+
+//       console.debug('[SurfDarts] HIT focal', {
+//         round: prev.currentRound,
+//         x,
+//         y,
+//         focalIndex,
+//         distanceToFocal,
+//         roundScore,
+//         nextRound,
+//         isFinal,
+//       });
+//     }
+
+//     // Apply computed state once
+//     setGameState(nextState);
+
+//     // Persist after state set (fire-and-forget)
+//     if (sessionId && roundDataToSave) {
+//       try {
+//         saveGameData(`round_${roundDataToSave.roundNumber}`, roundDataToSave);
+//       } catch {
+//         // ignore persistence errors for gameplay
+//       }
+//     }
+//   }, [sessionId]);
+
+//   const resetGame = useCallback(() => {
+//     const prev = stateRef.current;
+//     if (sessionId) {
+//       try {
+//         saveGameData('game_end', {
+//           finalScore: prev.totalScore,
+//           totalRounds: prev.currentRound - 1,
+//         });
+//       } catch {
+//         // ignore
+//       }
+//     }
+//     setGameState({
+//       currentRound: 1,
+//       totalScore: 0,
+//       circles: [{ id: 0, x: 0, y: 0, radius: INITIAL_BOARD_RADIUS }],
+//       isGameOver: false,
+//       message: null,
+//     });
+//   }, [sessionId]);
+
+//   // On terminal game over, persist once more (idempotent safety)
+//   useEffect(() => {
+//     if (gameState.isGameOver && sessionId) {
+//       try {
+//         saveGameData('game_end', {
+//           finalScore: gameState.totalScore,
+//           totalRounds: gameState.currentRound - 1,
+//         });
+//       } catch {
+//         // ignore
+//       }
+//     }
+//   }, [gameState.isGameOver, gameState.totalScore, gameState.currentRound, sessionId]);
+
+//   // Optional: show a message on first mount / when round changes
+//   useEffect(() => {
+//     if (gameState.isGameOver) return;
+//     if (gameState.currentRound === 1) {
+//       setTransientMessage('Round 1: Throw your dart anywhere on the board!');
+//     } else {
+//       setTransientMessage(`Round ${gameState.currentRound}: Aim for the new circle!`);
+//     }
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, [gameState.currentRound, gameState.isGameOver]);
+
+//   return { gameState, handleThrow, resetGame };
+// };
+
+
+
+
+
+
+
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { GameState, Circle, ThrowData, RoundData } from '../types';
 import { saveGameData } from '../services/apiService';
@@ -57,24 +266,41 @@ export const useSurfDarts = (sessionId: string | null) => {
     const distanceToFocal = dist(x, y, focal.x, focal.y);
     const hitFocal = distanceToFocal <= focal.radius;
 
-    // Precompute "inside which circles"
-    const insideFlags = circles.map(c => dist(x, y, c.x, c.y) <= c.radius);
-
-    // Compute round score per indicator rule only if focal is hit
+    // Compute round score per the corrected indicator rule only if focal is hit
     let roundScore = 0;
     if (hitFocal) {
-      for (let k = focalIndex; k >= 0; k--) {
-        // Must be inside every circle from k..focalIndex
-        let insideChain = true;
-        for (let j = k; j <= focalIndex; j++) {
-          if (!insideFlags[j]) {
-            insideChain = false;
+      // For each term in the scoring formula, we need to check if the throw point
+      // is inside a specific chain of circles and calculate the appropriate distance
+      
+      // The scoring formula for round n has n terms:
+      // Term 1: I_n * (1/r_n) - distance from throw to center of focal circle
+      // Term 2: I_n * I_n(n-1) * (1/r_n(n-1)) - distance from throw to center of circle n-1
+      // Term 3: I_n * I_n(n-1) * I_n(n-2) * (1/r_n(n-2)) - distance from throw to center of circle n-2
+      // ...
+      // Term n: I_n * ... * I_n0 * (1/r_n0) - distance from throw to origin
+      
+      for (let termIndex = 0; termIndex < circles.length; termIndex++) {
+        // For this term, we need to check if the throw is inside all circles
+        // from the focal circle down to the circle at (focalIndex - termIndex)
+        let insideAllRequired = true;
+        
+        // Check if inside all circles from focal down to the target circle for this term
+        for (let checkIndex = focalIndex; checkIndex >= focalIndex - termIndex; checkIndex--) {
+          const checkCircle = circles[checkIndex];
+          const distToCheck = dist(x, y, checkCircle.x, checkCircle.y);
+          if (distToCheck > checkCircle.radius) {
+            insideAllRequired = false;
             break;
           }
         }
-        if (!insideChain) continue;
-        const d = dist(x, y, circles[k].x, circles[k].y);
-        roundScore += recip(d);
+        
+        if (insideAllRequired) {
+          // Calculate distance from throw point to the center of the target circle for this term
+          const targetCircleIndex = focalIndex - termIndex;
+          const targetCircle = circles[targetCircleIndex];
+          const distanceForTerm = dist(x, y, targetCircle.x, targetCircle.y);
+          roundScore += recip(distanceForTerm);
+        }
       }
     }
 
