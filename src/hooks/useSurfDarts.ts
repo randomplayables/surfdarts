@@ -170,9 +170,15 @@ export const useSurfDarts = (sessionId: string | null) => {
     const prev = stateRef.current;
     if (sessionId) {
       try {
+        // If the game ended by *successful* round 5, log 5; otherwise log (currentRound - 1)
+        const completedRounds =
+          (prev.isGameOver && prev.currentRound === MAX_ROUNDS)
+            ? MAX_ROUNDS
+            : (prev.currentRound - 1);
+
         saveGameData('game_end', {
           finalScore: prev.totalScore,
-          totalRounds: prev.currentRound - 1,
+          totalRounds: completedRounds,
         });
       } catch {
         // ignore
@@ -191,9 +197,15 @@ export const useSurfDarts = (sessionId: string | null) => {
   useEffect(() => {
     if (gameState.isGameOver && sessionId) {
       try {
+        // If the game ended by *successful* round 5, log 5; otherwise log (currentRound - 1)
+        const completedRounds =
+          (gameState.currentRound === MAX_ROUNDS)
+            ? MAX_ROUNDS
+            : (gameState.currentRound - 1);
+
         saveGameData('game_end', {
           finalScore: gameState.totalScore,
-          totalRounds: gameState.currentRound - 1,
+          totalRounds: completedRounds,
         });
       } catch {
         // ignore
