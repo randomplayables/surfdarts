@@ -1,69 +1,24 @@
-# React + TypeScript + Vite
+# Surf Darts
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Surf Darts is a game of skill and chance built with React, TypeScript, and Vite, using the Kaplay.js game engine.
 
-Currently, two official plugins are available:
+## Overview
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The core Surf Darts concept involves throwing darts at a moving dartbooard (as if the dartboard were surfing). Each successful throw creates a new, smaller target circle for the next round. The game challenges players to maintain accuracy on an unpredictable, moving target, with a unique scoring system rooted in the geometry of the circles created.
 
-## Expanding the ESLint configuration
+## Game Rules
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Goal
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+The objective is to score as many points as possible across five possible rounds.
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+### Gameplay
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1.  **Starting the Game**: The game begins with a single large circle (Circle O) moving on the screen.
+2.  **Throwing a Dart**: Click the dart board to place your dart.
+3.  **Round Progression**:
+    * **Round 1**: Your first throw must land *inside* the initial large circle. The point where your dart lands becomes the center of the next target (Circle A), and its radius is the distance from your landing point to the center of Circle O.
+    * **Rounds 2-5**: For each subsequent round, you must land your dart inside the newest target circle (the "focal circle").
+4.  **Scoring**:
+    * Your score for each successful throw is calculated based on a cumulative formula. You earn points for the inverse of the distance from your landing spot to the center of the target circle, plus bonus points for also being inside the circles from prior rounds.
+5.  **Ending the Game**: The game ends immediately if you throw a dart and it lands *outside* the current focal circle. Otherwise, the game lasts five rounds.
