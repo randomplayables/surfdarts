@@ -84,21 +84,35 @@ export const useSurfDarts = (
     const distanceToFocal = dist(x, y, focal.x, focal.y);
     const hitFocal = distanceToFocal <= focal.radius;
 
-    // Compute round score per the corrected indicator rule only if focal is hit
+    // Compute round score per the CORRECTED formula
     let roundScore = 0;
     if (hitFocal) {
       // For round n, we have n terms in the scoring formula
-      // Each term checks specific circles and adds reciprocal of distance to a specific center
+      // Term structure from the game description:
+      // Term 1: Always just 1/distance_to_focal (only needs to be in focal circle)
+      // Term 2: 1/distance_to_previous IF also in previous circle
+      // Term 3: 1/distance_to_2_circles_back IF also in previous 2 circles
+      // etc.
+      
       for (let termIndex = 0; termIndex <= focalIndex; termIndex++) {
-        // For term i (0-indexed), we need to check if throw is inside:
-        // - The focal circle (always required since hitFocal is true)
-        // - All circles from focal down to circle at index (focalIndex - termIndex)
-
+        // For term termIndex (0-indexed):
+        // - Term 0: distance to focal center (circle at focalIndex)
+        // - Term 1: distance to previous center (circle at focalIndex - 1)
+        // - Term 2: distance to 2 circles back (circle at focalIndex - 2)
+        // etc.
+        
+        const targetCircleIndex = focalIndex - termIndex;
+        if (targetCircleIndex < 0) continue;
+        
+        // Check if we're inside all required circles for this term
+        // Term 0: just focal
+        // Term 1: focal AND previous
+        // Term 2: focal AND previous AND 2 circles back
+        // etc.
         let insideRequiredCircles = true;
-
-        // Check if throw is inside all circles from focal down to target for this term
-        for (let checkIdx = focalIndex; checkIdx >= focalIndex - termIndex; checkIdx--) {
-          if (checkIdx < 0) break;
+        
+        // We need to be inside circles from targetCircleIndex up through focal
+        for (let checkIdx = targetCircleIndex; checkIdx <= focalIndex; checkIdx++) {
           const circle = circles[checkIdx];
           const distToCircle = dist(x, y, circle.x, circle.y);
           if (distToCircle > circle.radius) {
@@ -106,15 +120,11 @@ export const useSurfDarts = (
             break;
           }
         }
-
+        
         if (insideRequiredCircles) {
-          // Calculate distance from throw to the center of the target circle for this term
-          const targetIdx = focalIndex - termIndex;
-          if (targetIdx >= 0) {
-            const targetCircle = circles[targetIdx];
-            const distToTarget = dist(x, y, targetCircle.x, targetCircle.y);
-            roundScore += recip(distToTarget);
-          }
+          const targetCircle = circles[targetCircleIndex];
+          const distToTarget = dist(x, y, targetCircle.x, targetCircle.y);
+          roundScore += recip(distToTarget);
         }
       }
     }
